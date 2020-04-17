@@ -503,14 +503,20 @@ cdef class LibCephFS(object):
             raise make_ex(ret, "error calling ceph_init")
         self.state = "initialized"
 
-    def mount(self):
+    def mount(self, mount_root=None):
         if self.state == "configuring":
             self.init()
         self.require_state("initialized")
+
+        # Prepare mount_root argument, default to "/"
+        root = b"/" if mount_root is None else mount_root
+        cdef:
+            char *_mount_root = root
+
         with nogil:
-            ret = ceph_mount(self.cluster, "/")
+            ret = ceph_mount(self.cluster, _mount_root)
         if ret != 0:
-            raise make_ex(ret, "error calling ceph_mount")
+            raise make_ex(ret, "error calling ceph_mount, mount_root={}".format(root))
         self.state = "mounted"
 
     def unmount(self):

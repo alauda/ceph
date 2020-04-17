@@ -476,7 +476,8 @@ class CephFSVolumeClient(object):
             self.evict(premount_evict)
             log.debug("Premount eviction of {0} completes".format(premount_evict))
         log.debug("CephFS mounting...")
-        self.fs.mount()
+        mount_root = os.getenv('MOUNT_ROOT')
+        self.fs.mount(mount_root=mount_root)
         log.debug("Connection to cephfs complete")
 
         # Recover from partial auth updates due to a previous
