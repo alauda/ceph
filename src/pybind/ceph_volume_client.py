@@ -476,13 +476,21 @@ class CephFSVolumeClient(object):
             self.evict(premount_evict)
             log.debug("Premount eviction of {0} completes".format(premount_evict))
         log.debug("CephFS mounting...")
-        mount_root = os.getenv('MOUNT_ROOT')
+        mount_root = self.get_mount_root()
         self.fs.mount(mount_root=mount_root)
         log.debug("Connection to cephfs complete")
 
         # Recover from partial auth updates due to a previous
         # crash.
         self.recover()
+
+    def get_mount_root(self):
+        mount_root = os.getenv("CEPH_MOUNT_ROOT")
+        if mount_root:
+            if not os.path.isabs(mount_root):
+                raise ValueError("root mount point {0} needs to be absolute".format(mount_root))
+            return mount_root
+        return None
 
     def get_mon_addrs(self):
         log.info("get_mon_addrs")
