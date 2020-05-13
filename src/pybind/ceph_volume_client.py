@@ -243,7 +243,7 @@ class CephFSVolumeClient(object):
     DEFAULT_VOL_PREFIX = "/volumes"
     DEFAULT_NS_PREFIX = "fsvolumens_"
 
-    def __init__(self, auth_id, conf_path, cluster_name, volume_prefix=None, pool_ns_prefix=None):
+    def __init__(self, auth_id, conf_path, cluster_name, volume_prefix=None, pool_ns_prefix=None, mount_root=None):
         self.fs = None
         self.rados = None
         self.connected = False
@@ -257,6 +257,7 @@ class CephFSVolumeClient(object):
         # We could use pid, but that's unnecessary weak: generate a
         # UUID
         self._id = struct.unpack(">Q", uuid.uuid1().bytes[0:8])[0]
+        self.mount_root = mount_root
 
         # TODO: version the on-disk structures
 
@@ -439,6 +440,16 @@ class CephFSVolumeClient(object):
             volume_path.group_id if volume_path.group_id is not None else NO_GROUP_NAME,
             volume_path.volume_id)
 
+    def _get_abs_path(self, volume_path):
+        """
+        Determine the abs path within CephFS where this volume will live
+        :return: absolute path (string)
+        """
+        path = self._get_path(volume_path)
+        if self.mount_root:
+            return os.path.normpath("/".join([self.mount_root, path]))
+        return path
+
     def _get_group_path(self, group_id):
         if group_id is None:
             raise ValueError("group_id may not be None")
@@ -476,21 +487,12 @@ class CephFSVolumeClient(object):
             self.evict(premount_evict)
             log.debug("Premount eviction of {0} completes".format(premount_evict))
         log.debug("CephFS mounting...")
-        mount_root = self.get_mount_root()
-        self.fs.mount(mount_root=mount_root)
+        self.fs.mount(mount_root=self.mount_root)
         log.debug("Connection to cephfs complete")
 
         # Recover from partial auth updates due to a previous
         # crash.
         self.recover()
-
-    def get_mount_root(self):
-        mount_root = os.getenv("CEPH_MOUNT_ROOT")
-        if mount_root:
-            if not os.path.isabs(mount_root):
-                raise ValueError("root mount point {0} needs to be absolute".format(mount_root))
-            return mount_root
-        return None
 
     def get_mon_addrs(self):
         log.info("get_mon_addrs")
@@ -629,7 +631,7 @@ class CephFSVolumeClient(object):
         :param size: In bytes, or None for no size limit
         :param data_isolated: If true, create a separate OSD pool for this volume
         :param namespace_isolated: If true, use separate RADOS namespace for this volume
-        :return:
+        :return: return absolute path
         """
         path = self._get_path(volume_path)
         log.info("create_volume: {0}".format(path))
@@ -674,7 +676,7 @@ class CephFSVolumeClient(object):
         self.fs.close(fd)
 
         return {
-            'mount_path': path
+            'mount_path': self._get_abs_path(volume_path)
         }
 
     def delete_volume(self, volume_path, data_isolated=False):
@@ -1046,7 +1048,7 @@ class CephFSVolumeClient(object):
         return key
 
     def _authorize_ceph(self, volume_path, auth_id, readonly):
-        path = self._get_path(volume_path)
+        path = self._get_abs_path(volume_path)
         log.debug("Authorizing Ceph id '{0}' for path '{1}'".format(
             auth_id, path
         ))
@@ -1238,7 +1240,7 @@ class CephFSVolumeClient(object):
         The volume must still exist.
         """
         client_entity = "client.{0}".format(auth_id)
-        path = self._get_path(volume_path)
+        path = self._get_abs_path(volume_path)
         pool_name = self._get_ancestor_xattr(path, "ceph.dir.layout.pool")
         try:
             namespace = self.fs.getxattr(path, "ceph.dir.layout.pool_"
